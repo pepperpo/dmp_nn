@@ -266,12 +266,16 @@ class ModelD(nn.Module):
         self.bn1 = nn.BatchNorm2d(32)
         self.conv2 = nn.Conv2d(32, 64, 3, 1)
         self.bn2 = nn.BatchNorm2d(64)
-        self.fc1a  = nn.Linear(64*5*5, 10)
-        #self.fc1a  = nn.Linear(10, 1024)
+        
         self.fc1b  = nn.Linear(64*5*5, 500)
-        self.fc2a = nn.Linear(20, 1024)
         self.fc2b = nn.Linear(500, 10)
-        self.fc3 = nn.Linear(1024, n_output)
+        
+        self.fc1a  = nn.Linear(64*5*5, 1024)
+        self.fc2a = nn.Linear(1024, 512)
+        self.fc3a = nn.Linear(512, 10)
+        self.fc4a = nn.Linear(20, 512)
+        self.fc5a = nn.Linear(512, 1024)
+        self.fc6a = nn.Linear(1024, n_output)
 
     def forward(self, x):
         batch_size = x.size(0)
@@ -293,13 +297,17 @@ class ModelD(nn.Module):
         xb1 = self.fc2b(xb)
         xb = F.log_softmax(xb1, dim=1)
         
-        #xa = self.fc1a(F.relu(xb1))
         xa = self.fc1a(x)
         xa = F.relu(xa)
-        xa = self.fc2a(torch.cat([xa,F.relu(xb1)],dim=1))
-        #xa = self.fc2a(xa)
+        xa = self.fc2a(xa)
         xa = F.relu(xa)
-        xa = self.fc3(xa)
+        xa = self.fc3a(xa)
+        xa = F.relu(xa)
+        xa = self.fc4a(torch.cat([xa,F.relu(xb1)],dim=1))
+        xa = F.relu(xa)
+        xa = self.fc5a(xa)
+        xa = F.relu(xa)
+        xa = self.fc6a(xa)
         xa[:,:4] = torch.sigmoid(xa[:,:4])
         xa[:,4:] = torch.tanh(xa[:,4:])
         
