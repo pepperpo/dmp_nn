@@ -19,7 +19,7 @@ sys.path.append(os.path.join('..','imports'))
 import pydmps
 from torchdiffeq import odeint
 
-from parameters import directory   
+from parameters import directory,n_bfs   
 from dmp_nn import DMPFunc
 
 def load_trajectories(directory):
@@ -28,6 +28,10 @@ def load_trajectories(directory):
     for name in files:
         filename = os.path.join(directory,name)
         traj = np.load(filename)
+        
+        if filename[-4:] == '.npz':
+            traj = traj['arr_0']
+        
         trajectories[name[:-4]] = traj
     return trajectories    
 
@@ -125,25 +129,34 @@ def traj2img(traj,width,height,torch_dtype,torch_device,rbf_w=500):
     return w    
 
 
-def generate_trajectories_from_template(batch_size_per_digit,n_bfs,dt,run_time,torch_device,torch_dtype):
-    
+def compute_dmp_params():
     # Computing the DMP parameters
     trajectories = load_trajectories(directory)
     all_keys = sorted(trajectories.keys())
-    
     y_track_dmp = {}
     dmp_w = {}
+    orig_y = {}
     for i_k,key in enumerate(all_keys):
-        y_des = trajectories[key][0]  
-        n_dmps= y_des.shape[1] 
-        dmp = pydmps.dmp_discrete.DMPs_discrete(n_dmps=n_dmps, n_bfs=n_bfs, ay=np.ones(2)*10.0)
-        dmp.imitate_path(y_des=y_des.T, plot=False)
+        y_track_dmp[key] = []
+        dmp_w[key] = []
+        orig_y[key] = []
+        for stroke_k in range(len(trajectories[key])):
+            y_des = np.array(trajectories[key][stroke_k])  
+                    
+            n_dmps= y_des.shape[1] 
+            dmp = pydmps.dmp_discrete.DMPs_discrete(n_dmps=n_dmps, n_bfs=n_bfs, ay=np.ones(2)*10.0)
+            dmp.imitate_path(y_des=y_des.T, plot=False)
+                
+            y_track, _, _ = dmp.rollout()
+            y_track_dmp[key].append(y_track)
+            dmp_w[key].append(dmp.w)
+            orig_y[key].append(y_des)
             
-        y_track, _, _ = dmp.rollout()
-        y_track_dmp[key] = y_track
-        dmp_w[key] = dmp.w
-        
-        
+    return dmp_w, y_track_dmp, orig_y        
+
+
+
+def generate_trajectories_from_template(batch_size_per_digit,n_bfs,dt,run_time,torch_device,torch_dtype):
      
     #plot_trajectories(trajectories, y_track_dmp, plot_dmp=plot_dmp)
     

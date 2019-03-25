@@ -32,7 +32,7 @@ if torch.cuda.is_available():
 else:
     torch_device = torch.device('cpu')   
     using_cuda = False
-torch_dtype = torch.float32  
+torch_dtype = torch.float32 
 
 # DMP input
 n_bfs = 50
