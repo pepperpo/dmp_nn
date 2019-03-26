@@ -10,7 +10,7 @@ import torch
 import os
 directory = os.path.join('..','digit_trajectories')
 
-train_out_dir = os.path.join('..','train_out')
+train_out_dir = os.path.join('..','train_out_proto')
 img_out_dir = os.path.join(train_out_dir,'img_out')
 dev_out_dir = os.path.join(train_out_dir,'dev_out')
 model_out_dir = os.path.join(train_out_dir,'model_out')

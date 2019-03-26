@@ -324,41 +324,47 @@ class Encoder(nn.Module):
     def __init__(self,n_output,proto_w,proto_traj,torch_device,torch_dtype):
         super(Encoder, self).__init__()
         #self.spatTr = SpatialTransformer()
-        self.conv1 = nn.Conv2d(1, 32, 3, 1)
-        self.bn1 = nn.BatchNorm2d(32)
-        self.conv2 = nn.Conv2d(32, 64, 3, 1)
-        self.bn2 = nn.BatchNorm2d(64)
+#        self.conv1 = nn.Conv2d(1, 32, 3, 1)
+#        self.bn1 = nn.BatchNorm2d(32)
+#        self.conv2 = nn.Conv2d(32, 64, 3, 1)
+#        self.bn2 = nn.BatchNorm2d(64)
         
         self.bias = []
         self.hidden = nn.ModuleList()
         self.output = nn.ModuleList()
         for k in range(len(proto_w)):
-            self.hidden.append(nn.Linear(64*5*5, 1024))
-            self.output.append(nn.Linear(1024, n_output))
-            end_start = np.concatenate([proto_traj[k][-1],proto_traj[k][0]])
-            cur_bias_i = np.concatenate([end_start,np.ravel(proto_w[k])])
+            #self.hidden.append(nn.Linear(64*5*5, 1024))
+            #self.output.append(nn.Linear(1024, n_output))
+            
+            self.hidden.append(nn.Linear(784, 400))
+            self.output.append(nn.Linear(400, n_output))
+            
+            #end_start = np.concatenate([proto_traj[k][-1],proto_traj[k][0]])
+            cur_bias_i = np.ravel(proto_w[k])#np.concatenate([end_start,np.ravel(proto_w[k])])
             self.bias.append(torch.tensor(cur_bias_i,device=torch_device,dtype=torch_dtype,requires_grad=False).view(1,-1))
         
         for m1 in list([self.hidden.modules(),self.output.modules()]):
             for m in m1:
                 if isinstance(m, nn.Linear):
-                    nn.init.normal_(m.weight, mean=0, std=0.001)
-                    nn.init.normal_(m.bias, mean=0, std=0.001)
+                    nn.init.normal_(m.weight, mean=0, std=1)
+                    nn.init.normal_(m.bias, mean=0, std=1)
                 
     def forward(self, x):
         batch_size = x.size(0)
-        x = x.view(batch_size, 1, 28,28)
-        #theta = self.spatTr(x)
+#        x = x.view(batch_size, 1, 28,28)
+#        #theta = self.spatTr(x)
+#        
+#        x = self.conv1(x)
+#        x = self.bn1(x)
+#        x = F.relu(x)
+#        x = F.max_pool2d(x, 2, 2)
+#        x = self.conv2(x)
+#        x = self.bn2(x)
+#        x = F.relu(x)
+#        x = F.max_pool2d(x, 2, 2)
+#        x = x.view(batch_size, 64*5*5)#64*28*28)
         
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = F.relu(x)
-        x = F.max_pool2d(x, 2, 2)
-        x = self.conv2(x)
-        x = self.bn2(x)
-        x = F.relu(x)
-        x = F.max_pool2d(x, 2, 2)
-        x = x.view(batch_size, 64*5*5)#64*28*28)
+        x = x.view(batch_size,784)
         
         out = []
         for k in range(len(self.hidden)):
@@ -366,7 +372,7 @@ class Encoder(nn.Module):
             x_k = self.output[k](x_k)
             #x_k[:,:4] = torch.sigmoid(x_k[:,:4])
             #x_k[:,4:] = torch.tanh(x_k[:,4:])#*100
-            
+            #print(x_k)
             x_k = x_k + self.bias[k]
             #x_k = torch.zeros_like(x_k) + self.bias[k]
             out.append(x_k)

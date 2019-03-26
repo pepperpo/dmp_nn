@@ -111,6 +111,7 @@ def traj2img(traj,width,height,torch_dtype,torch_device,rbf_w=500):
     w = torch.max((torch.exp(-((xv-x_traj)**2+(yv-y_traj)**2)*rbf_w)),dim=0)[0]
     
     if is_training == True:
+        
         w[w<0.6] = 0#torch.exp(w)
         w[w!=0] = 1
         
@@ -121,6 +122,11 @@ def traj2img(traj,width,height,torch_dtype,torch_device,rbf_w=500):
         
         
         w = F.conv2d(w.unsqueeze(1), kernel,padding=1).squeeze()
+        
+        w[w>1] = 1
+        
+        #norm_fact = (torch.max(w.view(-1,784),1))[0].unsqueeze(-1).unsqueeze(-1)
+        #w = w/norm_fact
         
         #w[w!=0] = torch.exp(w[w!=0])
         #w[w<0.01] = 0
@@ -240,7 +246,7 @@ def affine_transform(pred_y,torch_device,torch_dtype):
 
 
 def plot_res(cur_pred_y,cur_x,width,height,torch_dtype,torch_device):
-    plt_samples = 80#64
+    plt_samples = min([80,cur_x.size(0)])#64
     prod_img = traj2img(cur_pred_y[:,:plt_samples,:],width,height,torch_dtype,torch_device,rbf_w=2000)
     real_img = cur_x[:plt_samples]
     

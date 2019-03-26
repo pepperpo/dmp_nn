@@ -43,12 +43,18 @@ all_models = {}
 all_optim = {}
 bias = {}
 for i_k,key in enumerate(sorted(dmp_w.keys())):
-    cur_model = Encoder(n_bfs*n_dmps+n_dmps*2,dmp_w[key],orig_y[key],torch_device,torch_dtype)
+    cur_model = Encoder(n_bfs*n_dmps,dmp_w[key],orig_y[key],torch_device,torch_dtype)
     cur_model.to(torch_device).type(torch_dtype)
-    cur_optim = optim.SGD(cur_model.parameters(), lr=0.01)
+    cur_optim = torch.optim.Adadelta(cur_model.parameters())#optim.SGD(cur_model.parameters(), lr=0.01)
     all_models[key] = cur_model
     all_optim[key] = cur_optim
     
+
+for cur_model_i,cur_key in enumerate(all_models.keys()):    
+    dir_save = os.path.join(img_out_dir,cur_key)
+    if not os.path.exists(dir_save):
+        os.makedirs(dir_save)   
+                                
 
 t_zeros = torch.zeros(batch_size,n_dmps,device=torch_device,dtype=torch_dtype)
 t_ones = torch.ones(batch_size,n_dmps,device=torch_device,dtype=torch_dtype)
@@ -69,6 +75,8 @@ train_loader = DataLoader(train_dataset, shuffle=True,
 dmp_learn = DMPLearn(dt, run_time, n_bfs, n_dmps, torch_dtype)
 dmp_learn = dmp_learn.to(torch_device)
 
+rand_factor = [1000,100,100,50,100,20,50,50,50,50,1000,50]
+
 #model_d.train()
 for epoch_idx in range(epochs):
     
@@ -82,45 +90,123 @@ for epoch_idx in range(epochs):
             cur_y = mnist_y[cur_samples].to(torch_device).type(torch_dtype)
             cur_batch_size = cur_x.size(0)
             
+            all_losses = np.zeros(len(all_models))
+            
             # loop across all models and use only those associated witha class
-            for cur_key in all_models.keys():
+            for cur_model_i,cur_key in enumerate(all_models.keys()):
                 
                 if str(i_num) in cur_key:
                     #print(cur_key)
                     
                     cur_model = all_models[cur_key]
                     cur_optim = all_optim[cur_key]
-                    cur_optim.zero_grad()
-                    
                     all_model_params = cur_model(cur_x)
                     
+                    proto_traj = orig_y[cur_key]
                     
-                    plt.figure()
-                    traj_combo = []
-                    for i_m,model_params in enumerate(all_model_params):
-                        dmp_w_net = model_params[:,4:].view(cur_batch_size,n_dmps,n_bfs) 
-                        dmp_learn.set_w(dmp_w_net)
-                        
-                        init_y = torch.cat([t_ones[:cur_batch_size],model_params[:,:4],t_zeros[:cur_batch_size],model_params[:,2:4]],dim=1)
-                        cur_pred_y = odeint(dmp_learn, init_y, batch_t, method='euler')[:,:,[8,9]]
-                        traj_combo.append(cur_pred_y)
-                        
-                        plt_pred = cur_pred_y.cpu().detach().numpy()
-                        plot_multi_stroke(y_track_dmp[cur_key])
-                        plt.plot(plt_pred[:,0,0],plt_pred[:,0,1],'k')
-                        plt.xlim([0, 1])
-                        plt.ylim([0, 1])
+                    with torch.no_grad():
+                        #plt.figure()
+                        synth_traj = []
+                        for i_m,model_params in enumerate(all_model_params):
                             
-                    traj_combo = torch.cat(traj_combo,dim=0)  
-                    traj_img = traj2img(traj_combo,width,height,torch_dtype,torch_device)
-                    
-                    plt.figure()
-                    plt.imshow(traj_img[0].detach().numpy())
-                    plt.show()
+                            #model_params += torch.randn_like(model_params)*0.001
+                            
+                            end_t = torch.tensor(proto_traj[i_m][-1],device=torch_device,dtype=torch_dtype).view(1,-1).repeat(cur_batch_size,1)
+                            start_t = torch.tensor(proto_traj[i_m][0],device=torch_device,dtype=torch_dtype).view(1,-1).repeat(cur_batch_size,1)
+                            
+                            dmp_w_net = model_params.view(cur_batch_size,n_dmps,n_bfs) 
+                            dmp_w_net += torch.randn_like(dmp_w_net)*rand_factor[cur_model_i]#(torch.max(torch.abs(dmp_w_net))*0.5)
+                            
+                            dmp_learn.set_w(dmp_w_net)
+                            
+                            init_y = torch.cat([t_ones[:cur_batch_size],end_t,start_t,t_zeros[:cur_batch_size],start_t],dim=1)
+                            cur_pred_y = odeint(dmp_learn, init_y, batch_t, method='euler')[:,:,[8,9]]
+                            synth_traj.append(cur_pred_y)
+                            
+#                            plt_pred = cur_pred_y.cpu().numpy()
+#                            plot_multi_stroke(y_track_dmp[cur_key])
+#                            plt.plot(plt_pred[:,0,0],plt_pred[:,0,1],'k')
+#                            plt.xlim([0, 1])
+#                            plt.ylim([0, 1])
+                        
+                        traj_combo = torch.cat(synth_traj,dim=0)  
+                        traj_combo = apply_affine(traj_combo,torch_device,torch_dtype)
+                        
+                        traj_img = traj2img(traj_combo,width,height,torch_dtype,torch_device,rbf_w=None)
+                        
+#                        plt.figure()
+#                        plt.imshow(traj_img[0].cpu().numpy())
+#                        plt.show()
                         
                     #plt.show()
                         
-            
+                    cur_optim.zero_grad()
+                    all_model_params = cur_model(traj_img)
+                    
+                    loss = 0.
+                    pred_y = []
+                    for i_m,model_params in enumerate(all_model_params):
+                        
+                        dmp_w_net = model_params.view(cur_batch_size,n_dmps,n_bfs) 
+                        dmp_learn.set_w(dmp_w_net)
+                        
+                        end_t = torch.tensor(proto_traj[i_m][-1],device=torch_device,dtype=torch_dtype).view(1,-1).repeat(cur_batch_size,1)
+                        start_t = torch.tensor(proto_traj[i_m][0],device=torch_device,dtype=torch_dtype).view(1,-1).repeat(cur_batch_size,1)
+                        
+                        init_y = torch.cat([t_ones[:cur_batch_size],end_t,start_t,t_zeros[:cur_batch_size],start_t],dim=1)
+                        cur_pred_y = odeint(dmp_learn, init_y, batch_t, method='euler')[:,:,[8,9]]
+                        pred_y.append(cur_pred_y)
+                        
+                    pred_y = torch.cat(pred_y,dim=0)   
+                    cur_loss = torch.mean(torch.abs(pred_y - traj_combo))
+                    loss+=cur_loss
+                        
+                    
+                    loss.backward()
+                    cur_optim.step()
+                    
+                    all_losses[cur_model_i] += loss.item()
+                    
+                      
+                    
+                    if batch_idx % print_every_itr==0:
+                        
+                        print ('{} ({}, {}) current loss1 = {:.4f}'.format(epoch_idx,batch_idx,cur_key,loss.item()))
+                        
+                        with torch.no_grad():
+                            
+                             
+                            
+                            all_model_params = cur_model(cur_x)
+                            pred_traj = []
+                            for i_m,model_params in enumerate(all_model_params):
+                                dmp_w_net = model_params.view(cur_batch_size,n_dmps,n_bfs) 
+                                dmp_learn.set_w(dmp_w_net)
+                                
+                                end_t = torch.tensor(proto_traj[i_m][-1],device=torch_device,dtype=torch_dtype).view(1,-1).repeat(cur_batch_size,1)
+                                start_t = torch.tensor(proto_traj[i_m][0],device=torch_device,dtype=torch_dtype).view(1,-1).repeat(cur_batch_size,1)
+                                
+                                init_y = torch.cat([t_ones[:cur_batch_size],end_t,start_t,t_zeros[:cur_batch_size],start_t],dim=1)
+                                cur_pred_y = odeint(dmp_learn, init_y, batch_t, method='euler')[:,:,[8,9]]
+                                pred_traj.append(cur_pred_y)
+                                
+                            pred_traj_combo = torch.cat(pred_traj,dim=0)      
+                            real_img1 = plot_res(pred_traj_combo,cur_x,width,height,torch_dtype,torch_device)
+                            real_img2 = plot_res(pred_y,traj_img,width,height,torch_dtype,torch_device)
+                            real_img = torch.cat([real_img1,real_img2])
+                            f_save = os.path.join(img_out_dir,cur_key,'{}_{}.png'.format(epoch_idx, batch_idx))
+                            save_image(real_img,f_save)
+                   
+                    
+    print('Epoch {} - loss = {}'.format(epoch_idx,all_losses))
+    if epoch_idx % save_every == 0:
+        for cur_model_i,cur_key in enumerate(all_models.keys()):
+            f_save = os.path.join(model_out_dir,'model_{}.pth'.format(cur_key))
+            torch.save({'state_dict': all_models[cur_key].state_dict()},f_save)    
+                        
+                    
+                    
+                    
                     
             
             
